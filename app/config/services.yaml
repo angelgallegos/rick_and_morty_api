@@ -1,0 +1,73 @@
+# This file is the entry point to configure your own services.
+# Files in the packages/ subdirectory configure your dependencies.
+
+# Put parameters here that don't need to change on each machine where the app is deployed
+# https://symfony.com/doc/current/best_practices/configuration.html#application-related-configuration
+parameters:
+
+services:
+    # default configuration for services in *this* file
+    _defaults:
+        autowire: true      # Automatically injects dependencies in your services.
+        autoconfigure: true # Automatically registers your services as commands, event subscribers, etc.
+
+    # makes classes in src/ available to be used as services
+    # this creates a service per class whose id is the fully-qualified class name
+    App\:
+        resource: '../src/'
+        exclude:
+            - '../src/DependencyInjection/'
+            - '../src/Entity/'
+            - '../src/Kernel.php'
+            - '../src/Tests/'
+
+    # controllers are imported separately to make sure services can be injected
+    # as action arguments even if you don't extend any base controller class
+    App\Controller\:
+        resource: '../src/Controller/*'
+        tags: ['controller.service_arguments']
+
+    App\Client\RickAndMorty\Api\Cast\CharacterApi:
+        arguments:
+            $baseUrl: '%env(resolve:RICK_AND_MORT_API_URL)%'
+
+    App\Client\RickAndMorty\Api\Places\LocationApi:
+        arguments:
+            $baseUrl: '%env(resolve:RICK_AND_MORT_API_URL)%'
+
+    App\Client\RickAndMorty\Api\Episodes\EpisodeApi:
+        arguments:
+            $baseUrl: '%env(resolve:RICK_AND_MORT_API_URL)%'
+
+    App\Client\RickAndMorty\Factory\Places\LocationFactory:
+        arguments: ['@jms_serializer']
+
+    App\Client\RickAndMorty\Factory\Cast\CharacterFactory:
+        arguments: [ '@jms_serializer' ]
+
+    App\Client\RickAndMorty\Factory\Episodes\EpisodeFactory:
+        arguments: [ '@jms_serializer' ]
+
+    App\Client\RickAndMorty\Request\Places\LocationRequest:
+        arguments: ['@App\Client\RickAndMorty\Api\Places\LocationApi', '@App\Client\RickAndMorty\Factory\Places\LocationFactory']
+
+    App\Service\Places\LocationService:
+        arguments: ['@App\Client\RickAndMorty\Request\Places\LocationRequest']
+
+    App\Client\RickAndMorty\Request\Cast\CharacterRequest:
+        arguments: ['@App\Client\RickAndMorty\Api\Cast\CharacterApi', '@App\Client\RickAndMorty\Factory\Cast\CharacterFactory']
+
+    App\Client\RickAndMorty\Request\Episodes\EpisodeRequest:
+        arguments: ['@App\Client\RickAndMorty\Api\Episodes\EpisodeApi', '@App\Client\RickAndMorty\Factory\Episodes\EpisodeFactory']
+
+    App\Service\Episodes\EpisodeService:
+        arguments: [ '@App\Client\RickAndMorty\Request\Episodes\EpisodeRequest' ]
+
+    App\Service\Cast\CharactersService:
+        arguments: ['@App\Client\RickAndMorty\Request\Cast\CharacterRequest', '@App\Service\Places\LocationService', '@App\Service\Episodes\EpisodeService']
+
+    App\Service\Cast\CharacterService:
+        arguments: ['@App\Client\RickAndMorty\Request\Cast\CharacterRequest']
+
+    # add more service definitions when explicit configuration is needed
+    # please note that last definitions always *replace* previous ones

@@ -1,0 +1,396 @@
+---
+# curl -L -o ${HOME}/bin/dobi "https://github.com/dnephin/dobi/releases/download/v0.8/dobi-$(uname -s)" ; chmod +x ${HOME}/bin/dobi
+
+meta:
+  project: rickandmorty
+
+env=settings:
+  files: [ src/.env ]
+
+image=phpcli-image:
+  image: angelgallegos/php-cli
+  pull: once
+  tags: [ '{env.BASE_VERSION}' ]
+
+image=php-image:
+  image: angelgallegos/artisan
+  pull: once
+  tags: [ '{env.BASE_VERSION}' ]
+
+image=php-debug-image:
+  image: angelgallegos/artisan-once
+  pull: once
+  tags: [ '{env.BASE_VERSION}' ]
+
+image=composer-image:
+  image: angelgallegos/composer
+  pull: once
+  tags: [ '{env.BASE_VERSION}' ]
+
+image=database-image:
+  image: mariadb
+  pull: once
+  tags: [ '10.1' ]
+
+image=alpine-image:
+  image: alpine
+  tags: [ '3.5' ]
+  pull: once
+
+mount=root:
+  bind: .
+  path: /data/root
+
+# so src folder can be created
+mount=install-source:
+  bind: .
+  path: /data/www
+
+mount=cache:
+  bind: .cache
+  path: /data/cache
+
+mount=rsync-source:
+  bind: src
+  path: /data/work
+
+mount=vendor-source:
+  bind: src/vendor
+  path: /data/www/vendor
+
+mount=source:
+  bind: src
+  path: /data/www
+
+mount=waitforit:
+  bind: ./operations/utils
+  path: /opt/utils
+
+mount=version:
+  bind: ./.version
+  path: /data/.version
+
+mount=debug:
+  bind: ./etc/cli_php.ini
+  path: /etc/php/7.1/cli/php.ini
+
+compose=application:
+  files: [ docker-compose.yml ]
+  project: '{project}'
+  depends: [
+      'phpcli-image:pull',
+      'php-image:pull',
+      'composer-image:pull',
+      'database-image:pull'
+  ]
+
+compose=integration-application:
+  files: [ docker-compose.integration.test.yml ]
+  project: '{project}integration'
+  depends: [
+      'phpcli-image:pull',
+      'php-image:pull',
+      'composer-image:pull',
+      'database-image:pull'
+  ]
+
+job=composer-github:
+  use: composer-image
+  mounts: [ source ]
+  env:
+    # go here to create yours and `export` it setenv.${USER}
+    # https://github.com/settings/tokens
+    - GITHUB_ACCESS_TOKEN={env.GITHUB_ACCESS_TOKEN}
+  entrypoint: sh -c 'composer config -g github-oauth.github.com ${GITHUB_ACCESS_TOKEN} ; mv ${COMPOSER_HOME}/auth.json .'
+  artifact: src/auth.json
+
+job=composer-install:
+  use: composer-image
+  mounts: [ source,cache ]
+  command: install
+  artifact: src/vendor/composer/installed.json
+  depends: [ 'composer-github' ]
+
+job=composer-update:
+  use: composer-image
+  mounts: [ source,cache ]
+  command: update
+  artifact: src/vendor/composer/installed.json
+
+job=composer-autoload:
+  annotations:
+    description: 'generate new autoloader'
+  use: composer-image
+  mounts: [ source,cache ]
+  command: dump-autoload
+  artifact: src/vendor/autoload.php
+
+job=waitfor-database:
+  use: database-image
+  net-mode: '{project}_default'
+  mounts: [ waitforit ]
+  command: /opt/utils/wait-for-it.sh -s -t 120 -h mysql -p 3306 -- echo "database up"
+  depends: [ 'application:up' ]
+
+job=waitfor-database-integration:
+  use: database-image
+  net-mode: '{project}integration_default'
+  mounts: [ waitforit ]
+  command: /opt/utils/wait-for-it.sh -s -t 120 -h mysql -p 3306 -- echo "database up"
+  depends: [ 'integration-application:up' ]
+
+job=fill-database:
+  use: php-image
+  mounts: [ source ]
+  net-mode: '{project}_default'
+  command: php /data/www/bin/console doctrine:database:create
+  depends: [ 'application:up', 'waitfor-database' ]
+
+job=run-phpunit-all-tests:
+  use: php-image
+  mounts: [ source, version ]
+  env:
+    - GATEWAY_API_KEY={env.GATEWAY_API_KEY}
+    - APP_URL={env.APP_URL}
+  net-mode: '{project}integration_default'
+  command: sh -c "phpdismod -s cli xdebug ; phpunit --testsuite Full"
+  depends: [
+      'settings',
+      'integration-application:up',
+      'run-phpunit-integration-migrate'
+  ]
+
+job=run-phpunit:
+  use: php-debug-image
+  mounts: [ source,version ]
+  command: sh -c "phpdismod -s cli xdebug ; phpunit --testsuite Unit"
+
+job=run-phpunit-functional:
+  use: php-debug-image
+  mounts: [ source,version ]
+  env:
+    - GATEWAY_API_KEY={env.GATEWAY_API_KEY}
+    - APP_URL={env.APP_URL}
+  net-mode: '{project}integration_default'
+  command: sh -c "phpdismod -s cli xdebug && phpunit --testsuite Functional"
+  depends: [
+      'settings',
+      'integration-application:up',
+      'run-phpunit-integration-migrate'
+  ]
+
+job=run-phpunit-integration:
+  use: php-debug-image
+  mounts: [ source,version ]
+  net-mode: '{project}integration_default'
+  command: sh -c "phpdismod -s cli xdebug && phpunit -v --configuration phpunit.integration.xml"
+  depends: [ 'integration-application:up','run-phpunit-integration-migrate' ]
+
+job=run-phpunit-debug:
+  use: php-debug-image
+  mounts: [ source,version,debug ]
+  env:
+    - PHP_IDE_CONFIG=serverName=ivan
+  command: sh -c "phpunit --testsuite Unit"
+
+job=run-phpunit-all-tests-debug:
+  use: php-image
+  mounts: [ source, version ]
+  env:
+    - GATEWAY_API_KEY={env.GATEWAY_API_KEY}
+    - APP_URL={env.APP_URL}
+    - PHP_IDE_CONFIG=serverName=ivan
+  net-mode: '{project}integration_default'
+  command: sh -c "phpunit --testsuite Full"
+  depends: [
+      'settings',
+      'integration-application:up',
+      'run-phpunit-integration-migrate'
+  ]
+
+job=run-phpunit-copy:
+  use: php-debug-image
+  mounts: [ rsync-source,vendor-source,version ]
+  command: bash -c "rsync -av --delete --exclude /.git --exclude-from /data/work/.gitignore /data/work/ /data/www ;
+    cp .env.example .env ;
+    phpdismod -s cli xdebug ;
+    phpunit --testsuite Unit"
+
+job=run-phpunit-integration-migrate:
+  use: php-debug-image
+  mounts: [ source,version ]
+  net-mode: '{project}integration_default'
+  env:
+    - DB_HOST=mysql
+    - DB_PORT=3306
+    - DB_DATABASE=ivan
+    - DB_USERNAME=ivan
+    - DB_PASSWORD=password
+  command: php bin/console doctrine:database:create
+  depends: [ 'waitfor-database-integration' ]
+
+
+job=run-phpunit-integration-debug:
+  use: php-debug-image
+  mounts: [ source,version,debug ]
+  net-mode: '{project}integration_default'
+  env:
+    - DB_HOST=mysql
+    - DB_PORT=3306
+    - DB_DATABASE=ivan
+    - DB_USERNAME=ivan
+    - DB_PASSWORD=password
+    - PHP_IDE_CONFIG=serverName=192.168.132.1
+  depends: [ 'integration-application:up','run-phpunit-integration-migrate' ]
+
+job=test-db:
+  use: database-image
+  net-mode: '{project}integration_default'
+  interactive: true
+  command: bash
+
+
+job=run-phpunit-integration-copy:
+  use: php-debug-image
+  mounts: [ rsync-source,vendor-source,version ]
+  net-mode: '{project}integration_default'
+  command: bash -c "rsync -av --delete --exclude /.git --exclude-from /data/work/.gitignore /data/work/ /data/www ;
+    cp .env.example .env ;
+    phpdismod -s cli xdebug ;
+    phpunit -v --configuration phpunit.integration.xml --repeat 4"
+  depends: [ 'integration-application:up','run-phpunit-integration-migrate' ]
+
+job=create-phan-stubs-folder:
+  use: alpine-image
+  mounts: [ source ]
+  command: mkdir -p /data/www/.phan/stubs
+
+job=compose-ide-helper:
+  use: composer-image
+  mounts: [ source ]
+  command: require --dev barryvdh/laravel-ide-helper
+
+job=compose-phan:
+  use: composer-image
+  mounts: [ source ]
+  command: require --dev phan/phan:"^1.0.0"
+  artifact: src/vendor/bin/phan
+
+job=compose-codesniffer:
+  use: composer-image
+  mounts: [ source ]
+  command: require --dev squizlabs/php_codesniffer:"^2.8"
+  artifact: src/vendor/bin/phpcs
+
+job=run-phplint:
+  use: php-debug-image
+  mounts: [ source ]
+  command: sh -c "phpdismod -s cli xdebug ; phan"
+
+job=run-phpsniffer:
+  use: php-debug-image
+  mounts: [ source ]
+  command: phpcs --standard=PSR2 --tab-width=4 app tests
+
+job=run-phpcodecorrect:
+  use: php-debug-image
+  mounts: [ source ]
+  command: sh -c "phpdismod -s cli xdebug ;
+    phpcbf --standard=PSR2 --tab-width=4 app tests || true"
+
+job=migrate-up:
+  annotations:
+    description: migrate forward, [needs dobi dev]
+  use: php-image
+  mounts: [ source ]
+  net-mode: '{project}_default'
+  command: php bin/console doctrine:migrations:migrate
+
+job=migrate-rollback:
+  annotations:
+    description: migrate rollback last migration, [needs dobi dev]
+  use: php-image
+  mounts: [ source ]
+  net-mode: '{project}_default'
+  command: php bin/console doctrine:migrations:rollup
+
+alias=prepareDB:
+  tasks: [ 'fill-database' ]
+
+alias=prepare:
+  tasks: [ 'composer-install','prepareDB' ]
+
+alias=initialize:
+  annotations:
+    description: "initialize new dev environment"
+  tasks: [ 'composer-install', 'prepareDB' ]
+
+alias=dev:
+  annotations:
+    description: "start development server"
+  tasks: [ 'application:attach' ]
+
+alias=compose:
+  annotations:
+    description: compose dependencies
+  tasks: [ 'compose-phan','compose-ide-helper','compose-codesniffer' ]
+
+alias=sniff:
+  annotations:
+    description: "run phpCodeSniffer"
+  tasks: [ 'run-phpsniffer' ]
+
+alias=lint:
+  annotations:
+    description: "run phplint"
+  tasks: [ 'run-phplint' ]
+
+alias=correct:
+  annotations:
+    description: "run phpCodeCorrecter"
+  tasks: [ 'run-phpcodecorrect' ]
+
+alias=correct-sniff:
+  annotations:
+    description: "run phpCodeCorrecter then phpCodeSniffer"
+  tasks: [ 'run-phpcodecorrect', 'run-phpsniffer' ]
+
+alias=test-unit:
+  annotations:
+    description: "run phpunit"
+  tasks: [ 'run-phpunit' ]
+
+alias=test:
+  annotations:
+    description: "run phpunit"
+  tasks: [ 'run-phpunit-all-tests' ]
+
+alias=test-unit-debug:
+  annotations:
+    description: "run phpunit with XDebug enabled"
+  tasks: [ 'run-phpunit-all-tests-debug' ]
+
+alias=test-debug:
+  annotations:
+    description: "run phpunit"
+  tasks: [ 'run-phpunit-debug' ]
+
+alias=test-integration:
+  annotations:
+    description: "run phpunit integration"
+  tasks: [ 'run-phpunit-integration' ]
+
+alias=test-functional:
+  annotations:
+    description: "run phpunit"
+  tasks: [ 'run-phpunit-functional' ]
+
+alias=e2e:
+  annotations:
+    description: "run phpunit integration"
+  tasks: [ 'run-phpunit-integration' ]
+
+alias=tests:
+  annotations:
+    description: "run all phpunit tests"
+  tasks: [ 'run-phpunit-all-tests' ]

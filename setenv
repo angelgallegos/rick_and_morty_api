@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+
+# Description:
+# one-off convenience command to initialize terminal.
+
+# Usage:
+# $ source setenv
+
+# Advanced usage
+# add your own setenv.${USER} file to add your own tricks
+
+# Example content of setenv.AikoM (remove prefixed #'s):
+
+# export N_PREFIX=${HOME}/.n/$(basename ${PWD})
+# N_PATH=${N_PREFIX}/bin
+# case ":$PATH:" in
+#  *":$N_PATH:"*) :;; # already there
+#  *) export PATH="$N_PATH:$PATH";; # or PATH="$PATH:$new_entry"
+# esac
+
+# end example setenv.AikoM
+
+MACHINE_NAME='rickandmorty'
+export COMPOSE_PROJECT_NAME=${MACHINE_NAME}
+
+# add ${HOME}/bin to PATH
+LOCAL_BIN=${PWD}/bin
+case ":$PATH:" in
+  *":$LOCAL_BIN:"*) :;; # already there
+  *) export PATH="$LOCAL_BIN:$PATH";; # or PATH="$PATH:$new_entry"
+esac
+
+
+export rickandmorty_HOME=$PWD
+# make ops_home easily available to other scripts
+export OPS_HOME=$PWD/operations
+
+if [ -f ./setenv.shared ]; then
+  source ./setenv.shared
+fi
+
+if [ -f ./setenv.${USER} ]; then
+  source ./setenv.${USER}
+fi
+
+if [ -f ./.version ]; then
+  export $(cat ./.version | xargs)
+fi
+
+source ${OPS_HOME}/utils/echo.sh
+
+./bootstrap.sh || \
+ echo_error "running bootstrap.sh"
+
+echo_info Setting environment for docker-machine ${bold}${MACHINE_NAME}${normal}
+eval "$(docker-machine env ${MACHINE_NAME})"
+
+#export RESOURCE_SERVER_TOKEN_KEY="`cat src/storage/app/public/development/resourceServerToken.pub | base64`"
+#export AUTH_SERVER_HMAC_KEY="`cat src/storage/app/public/development/HMACSignatureSecret.pem | base64`"
+
+alias docker-image-tree="docker run -it --rm -v /var/run/docker.sock:/var/run/docker.sock nate/dockviz images -t"
+alias dcomposer="docker run -it --rm -v ${PWD}/src:/data/www -v ${PWD}/.cache:/data/cache angelgallegos/composer:${BASE_VERSION}"
+alias phpunit="docker run -it --rm -v ${PWD}/src:/data/www angelgallegos/artisan-once:${BASE_VERSION} phpunit"
+alias phpcs="docker run -it --rm -v ${PWD}/src:/data/www angelgallegos/artisan-once:${BASE_VERSION} phpcs --standard=PSR2 --tab-width=4"
+alias phpcbf="docker run -it --rm -v ${PWD}/src:/data/www angelgallegos/artisan-once:${BASE_VERSION} phpcbf --standard=PSR2 --tab-width=4"
+alias artisan="docker run -it --rm -v ${PWD}/src:/data/www angelgallegos/artisan-once:${BASE_VERSION} php artisan"

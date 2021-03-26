@@ -1,0 +1,103 @@
+---
+version: '3.7'
+#version: '3.7'
+#services:
+#  postgres:
+#    image: postgres
+#    ports:
+#      - '5433:5432'
+#  php:
+#    build: docker/php-fpm
+#    ports:
+#      - '9002:9000'
+#    volumes:
+#      - ./app/:/var/www/symfony:cached
+#      - ./logs/symfony:/var/www/symfony/var/logs:cached
+#    links:
+#      - postgres
+#  nginx:
+#    build: docker/nginx
+#    ports:
+#      - '8080:80'
+#    links:
+#      - php
+#    volumes_from:
+#      - php
+#    volumes:
+#      - ./logs/nginx/:/var/log/nginx:cached
+services:
+  php:
+    image: angelgallegos/artisan:${BASE_VERSION}
+    #build: operations/docker/artisan
+    hostname: rickandmorty
+    ports:
+      - "80:8000"
+    volumes:
+      - ./app:/data/www
+      - .version:/data/.version
+    links:
+      - mysql
+    #entrypoint: php artisan serve --host=0.0.0.0
+    entrypoint: php -S 0.0.0.0:8000 -t public/
+    #command: tail -f /dev/null
+    # https://docs.docker.com/engine/admin/logging/overview/
+    logging:
+      driver: "json-file"
+      options:
+        max-size: 2k
+        max-file: "8"
+
+  php-debug:
+    image: angelgallegos/artisan-once:${BASE_VERSION}
+    #build: operations/docker/artisan-once
+    hostname: rickandmorty-debug
+    ports:
+      - "88:8000"
+    volumes:
+      - ./app:/data/www
+      - ./etc/cli_php.ini:/etc/php/7.4/php.ini
+    environment:
+      - XDEBUG_CONFIG=idekey=artisan
+      - PHP_IDE_CONFIG=serverName=rickandmorty
+    links:
+      - mysql
+    #entrypoint: php artisan serve --host=0.0.0.0
+    entrypoint: php -S 0.0.0.0:8000 -t public/
+    #command: tail -f /dev/null
+    # https://docs.docker.com/engine/admin/logging/overview/
+    logging:
+      driver: "json-file"
+      options:
+        max-size: 2k
+        max-file: "8"
+
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    ports:
+      - "3386:80"
+    links:
+      - mysql:db
+    # https://docs.docker.com/engine/admin/logging/overview/
+    logging:
+      driver: "json-file"
+      options:
+        max-size: 2k
+        max-file: "8"
+
+  mysql:
+    # https://laravel-news.com/laravel-5-4-key-too-long-error
+    image: mariadb:10.1
+    #mem_limit: 256m
+    ports:
+      - "3306:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=root
+      - MYSQL_DATABASE=rickandmorty
+      - MYSQL_USER=rickandmorty
+      - MYSQL_PASSWORD=password
+    # https://docs.docker.com/engine/admin/logging/overview/
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "16m"
+        max-file: "8"
