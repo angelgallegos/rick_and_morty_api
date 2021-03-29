@@ -13,23 +13,23 @@ The next searches can be preformed with this Gateway:
 - Showing all information of a character (Name, species, gender, last location, dimension, etc)
 
 ## Requirements
-- PHP 7.4 >=
-- Composer
+- [Docker](https://docs.docker.com/)
+- [Docker machine](https://docs.docker.com/machine/)
+- [VirtualBox](https://www.virtualbox.org/)
+- [Dobi](https://dnephin.github.io/dobi/)
 
 ## Usage
-Install the dependencies with:
+Initialize the machine by running:
 ```
-composer install
+$ source setenv
 ```
-Once the dependencies had been installed the project can be started with either:
+This will run the machine or create it and run it if it has never been created.
+After the previous step you can start the containers needed to launch the application by running:
 ```
- symfony server:start
+$ dobi dev
 ```
-if the global symfony binary is installed. 
-Or using the php debug server:
-```
-php -S localhost:8000 -t public/                                                                                        
-```
+
+Then the API is available in the IP: 192.168.50.100
 
 ## The endpoints
 
@@ -39,7 +39,7 @@ The characters can be filtered by posting a CharacterFilter object to the
 as follows:
 ```
 curl --request POST \
-  --url 'http://127.0.0.1:8000/api/characters?XDEBUG_SESSION_START=PHPSTORM' \
+  --url 'http://192.168.50.100:80/api/characters?XDEBUG_SESSION_START=PHPSTORM' \
   --header 'Content-Type: application/json' \
   --data '{
 	"episode": 1
@@ -63,7 +63,7 @@ But the id can also be used to filter the characters
 To retrieve a single character you can use the next endpoint:
 ```
 curl --request GET \
-  --url http://127.0.0.1:8000/api/character/{id}
+  --url http://192.168.50.100:80/api/character/{id}
 ```
 
 where the id is an int.
